@@ -1,0 +1,20 @@
+{
+    "detecciones": [
+        {
+            "clase": "bache",
+            "puntaje": 72,
+            "recuadro": {
+                "top": 250,
+                "right": 300,
+                "bottom": 320,
+                "left": 180
+            }
+        }
+    ],
+    "foto_path": "path_foto",
+    "timestamp": "YYYY-MM-DDTHH:MM:SS",
+    "ubicacion": {
+        "latitud": "latitud",
+        "longitud": "longitud"
+    }
+}
