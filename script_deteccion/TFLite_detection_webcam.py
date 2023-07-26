@@ -27,6 +27,8 @@ import json
 import queue
 import threading
 import pytz
+import base64
+import requests
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
@@ -118,7 +120,7 @@ def obtener_timestamp_iso8601():
     return now_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
  
 
-def detect_thread_function():
+def detect_thread_function(cola_registros):
     global GRAPH_NAME
     global width
     global height
@@ -194,9 +196,6 @@ def detect_thread_function():
     else: # This is a TF1 model
         boxes_idx, classes_idx, scores_idx = 0, 1, 2
 
-
-    # Crear cola para comunicación entre hilos
-    cola_registros = queue.Queue()
     id_foto = 1
 
     # Initialize video stream
@@ -304,5 +303,58 @@ def detect_thread_function():
     videostream.stop()
 
 
-enviar_registros_thread = threading.Thread(target=detect_thread_function)
+def send_thread_function(cola_registros):
+    while True:
+        registro = cola_registros.get()
+        if registro is None:
+            break
+        
+        registro_json = json.loads(registro)
+
+        path_foto = registro_json["path_foto"] #path imagen en embebido
+
+        # Leer el contenido de la imagen
+        with open(path_foto, "rb") as archivo_imagen:
+            contenido_imagen = archivo_imagen.read()
+
+        # Codificar el contenido de la imagen en base64
+        imagen_base64 = base64.b64encode(contenido_imagen).decode()
+
+        #se agrega foto en base64
+        registro_json["foto"] = imagen_base64
+
+        #enviar datos a Backend
+        url_servicio = "URL_servicio"
+        parametros = {
+            "data": json.dumps(registro_json)
+        }
+
+        # Realizar la solicitud GET
+        try:
+            response = requests.get(url_servicio, params=parametros)
+        except requests.exceptions.RequestException as e:
+            print("Error al hacer la solicitud:", e)
+
+        # Comprobar si la solicitud fue exitosa
+        if response.status_code == 200:
+            print("procesado Ok")
+            
+        else:
+            del registro_json["foto"] #se quita el base64 para el print
+            print("ERROR: " + json.dumps(registro_json))    
+
+# Crear cola para comunicación entre hilos
+cola_registros = queue.Queue()
+
+enviar_registros_thread = threading.Thread(target=detect_thread_function, args=(cola_registros,))
+consumir_registros_thread = threading.Thread(target=send_thread_function, args=(cola_registros,))
+
 enviar_registros_thread.start()
+consumir_registros_thread.start()
+
+#se espera a que el hilo que genera los registros termine y luego se pone un valor final
+enviar_registros_thread.join()
+cola_registros.put(None)
+
+#se espera a que termine el hilo que consume los datos
+consumir_registros_thread.join()
