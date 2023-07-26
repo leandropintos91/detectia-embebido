@@ -42,8 +42,11 @@ parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If t
                     default='1280x720')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
-parser.add_argument('--verbose', help='Print log messages or not',
-                    default='False')
+parser.add_argument('--verbose', action='store_true', help='Print log messages or not')
+parser.add_argument('--video', help='Name of the video file',
+                    default='')
+parser.add_argument('--gui', action='store_true', help='Show or not screen with boxes')
+
 
 args = parser.parse_args()
 
@@ -55,6 +58,8 @@ resW, resH = args.resolution.split('x')
 imW, imH = int(resW), int(resH)
 use_TPU = args.edgetpu
 verbose = bool(args.verbose)
+VIDEO_NAME = args.video
+MODO_VISUAL = args.gui
 
 
 home_path = os.path.expanduser("~")
@@ -117,6 +122,8 @@ def detect_thread_function():
     global GRAPH_NAME
     global width
     global height
+    global imH
+    global imW
 
     # Import TensorFlow libraries
     # If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
@@ -187,19 +194,31 @@ def detect_thread_function():
     else: # This is a TF1 model
         boxes_idx, classes_idx, scores_idx = 0, 1, 2
 
-    # Initialize video stream
-    videostream = VideoStream(resolution=(imW,imH),framerate=1).start()
-    time.sleep(1)
 
     # Crear cola para comunicación entre hilos
     cola_registros = queue.Queue()
     id_foto = 1
 
+    # Initialize video stream
+    if (VIDEO_NAME != ""):
+        video = cv2.VideoCapture(VIDEO_NAME)
+        imW = video.get(cv2.CAP_PROP_FRAME_WIDTH)
+        imH = video.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    else:
+        videostream = VideoStream(resolution=(imW,imH),framerate=1).start()
+        time.sleep(1)
+
     #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
     while True:
 
-        # Grab frame from video stream
-        frame1 = videostream.read()
+        if (VIDEO_NAME != "" and video.isOpened()):
+            ret, frame1 = video.read()
+            if not ret:
+                print('Reached the end of the video!')
+                break
+        else:
+            # Grab frame from video stream
+            frame1 = videostream.read()
 
         # Acquire frame and resize to expected shape [1xHxWx3]
         frame = frame1.copy()
@@ -272,6 +291,9 @@ def detect_thread_function():
                 print("Appending registry to queue:")
                 print(registro_json)
             cola_registros.put(registro_json)
+
+        if (MODO_VISUAL == True):
+            cv2.imshow('Object detector', frame)
 
         # Press 'q' to quit
         if cv2.waitKey(1) == ord('q'):
