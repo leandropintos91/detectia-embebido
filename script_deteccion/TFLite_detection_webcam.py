@@ -29,6 +29,7 @@ import threading
 import pytz
 import base64
 import requests
+from dotenv import load_dotenv
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
@@ -48,6 +49,8 @@ parser.add_argument('--verbose', action='store_true', help='Print log messages o
 parser.add_argument('--video', help='Name of the video file',
                     default='')
 parser.add_argument('--gui', action='store_true', help='Show or not screen with boxes')
+parser.add_argument('--framestep', help='Steps for skipping frames to accelerate the video. Default value does not accelerate the video',
+                    default=1)
 
 
 args = parser.parse_args()
@@ -62,6 +65,10 @@ use_TPU = args.edgetpu
 verbose = bool(args.verbose)
 VIDEO_NAME = args.video
 MODO_VISUAL = args.gui
+FRAME_STEP = int(args.framestep)
+
+load_dotenv()
+BACKEND_URL = os.getenv('BACKEND_URL')
 
 
 home_path = os.path.expanduser("~")
@@ -126,6 +133,7 @@ def detect_thread_function(cola_registros):
     global height
     global imH
     global imW
+    global FRAME_STEP
 
     # Import TensorFlow libraries
     # If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
@@ -208,6 +216,7 @@ def detect_thread_function(cola_registros):
         time.sleep(1)
 
     #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
+    frameNumber = 0
     while True:
 
         if (VIDEO_NAME != "" and video.isOpened()):
@@ -215,6 +224,11 @@ def detect_thread_function(cola_registros):
             if not ret:
                 print('Reached the end of the video!')
                 break
+
+            frameModule = frameNumber%FRAME_STEP
+            frameNumber = frameNumber + 1
+            if frameModule != 0:
+                continue
         else:
             # Grab frame from video stream
             frame1 = videostream.read()
@@ -278,10 +292,10 @@ def detect_thread_function(cola_registros):
             registro = {
                 "detecciones": detecciones,
                 "path_foto": path,
-                "timestamp": timestamp,
+                "fechaDeteccion": timestamp,
                 "ubicacion": {
-                    "latitud": "",
-                    "longitud": ""
+                    "latitud": "-47.2154",
+                    "longitud": "-58.2354"
                 }
             }
             registro_json = json.dumps(registro)
@@ -304,10 +318,14 @@ def detect_thread_function(cola_registros):
 
 
 def send_thread_function(cola_registros):
+    global BACKEND_URL
+    global verbose
+    
+    print("empece a leer la cola")
     while True:
         registro = cola_registros.get()
         if registro is None:
-            break
+            continue
         
         registro_json = json.loads(registro)
 
@@ -324,24 +342,26 @@ def send_thread_function(cola_registros):
         registro_json["foto"] = imagen_base64
 
         #enviar datos a Backend
-        url_servicio = "URL_servicio"
-        parametros = {
-            "data": json.dumps(registro_json)
-        }
+        headers = {'Content-Type': 'application/json'}
 
         # Realizar la solicitud GET
+        response = None
         try:
-            response = requests.get(url_servicio, params=parametros)
+            if verbose:
+                print("Trying to send POST request with:")
+                print(registro_json)
+            response =  requests.post(BACKEND_URL, data=json.dumps(registro_json), headers=headers)
         except requests.exceptions.RequestException as e:
-            print("Error al hacer la solicitud:", e)
+            print("Error al hacer la solicitud del archivo" + registro_json["path_foto"])
 
         # Comprobar si la solicitud fue exitosa
-        if response.status_code == 200:
+        if response != None and response.status_code == 200:
             print("procesado Ok")
             
         else:
             del registro_json["foto"] #se quita el base64 para el print
-            print("ERROR: " + json.dumps(registro_json))    
+            print("ERROR: " + registro_json + ". Reencolando registro para reenviar")
+            cola_registros.put(registro_json)
 
 # Crear cola para comunicación entre hilos
 cola_registros = queue.Queue()
