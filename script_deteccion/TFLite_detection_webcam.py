@@ -27,6 +27,9 @@ import json
 import queue
 import threading
 import pytz
+import base64
+import requests
+from dotenv import load_dotenv
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
@@ -46,6 +49,8 @@ parser.add_argument('--verbose', action='store_true', help='Print log messages o
 parser.add_argument('--video', help='Name of the video file',
                     default='')
 parser.add_argument('--gui', action='store_true', help='Show or not screen with boxes')
+parser.add_argument('--framestep', help='Steps for skipping frames to accelerate the video. Default value does not accelerate the video',
+                    default=1)
 
 
 args = parser.parse_args()
@@ -60,6 +65,10 @@ use_TPU = args.edgetpu
 verbose = bool(args.verbose)
 VIDEO_NAME = args.video
 MODO_VISUAL = args.gui
+FRAME_STEP = int(args.framestep)
+
+load_dotenv()
+BACKEND_URL = os.getenv('BACKEND_URL')
 
 
 home_path = os.path.expanduser("~")
@@ -118,12 +127,13 @@ def obtener_timestamp_iso8601():
     return now_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
  
 
-def detect_thread_function():
+def detect_thread_function(cola_registros):
     global GRAPH_NAME
     global width
     global height
     global imH
     global imW
+    global FRAME_STEP
 
     # Import TensorFlow libraries
     # If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
@@ -194,9 +204,6 @@ def detect_thread_function():
     else: # This is a TF1 model
         boxes_idx, classes_idx, scores_idx = 0, 1, 2
 
-
-    # Crear cola para comunicación entre hilos
-    cola_registros = queue.Queue()
     id_foto = 1
 
     # Initialize video stream
@@ -209,6 +216,7 @@ def detect_thread_function():
         time.sleep(1)
 
     #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
+    frameNumber = 0
     while True:
 
         if (VIDEO_NAME != "" and video.isOpened()):
@@ -216,6 +224,11 @@ def detect_thread_function():
             if not ret:
                 print('Reached the end of the video!')
                 break
+
+            frameModule = frameNumber%FRAME_STEP
+            frameNumber = frameNumber + 1
+            if frameModule != 0:
+                continue
         else:
             # Grab frame from video stream
             frame1 = videostream.read()
@@ -279,10 +292,10 @@ def detect_thread_function():
             registro = {
                 "detecciones": detecciones,
                 "path_foto": path,
-                "timestamp": timestamp,
+                "fechaDeteccion": timestamp,
                 "ubicacion": {
-                    "latitud": "",
-                    "longitud": ""
+                    "latitud": "-47.2154",
+                    "longitud": "-58.2354"
                 }
             }
             registro_json = json.dumps(registro)
@@ -304,5 +317,64 @@ def detect_thread_function():
     videostream.stop()
 
 
-enviar_registros_thread = threading.Thread(target=detect_thread_function)
+def send_thread_function(cola_registros):
+    global BACKEND_URL
+    global verbose
+    
+    print("empece a leer la cola")
+    while True:
+        registro = cola_registros.get()
+        if registro is None:
+            continue
+        
+        registro_json = json.loads(registro)
+
+        path_foto = registro_json["path_foto"] #path imagen en embebido
+
+        # Leer el contenido de la imagen
+        with open(path_foto, "rb") as archivo_imagen:
+            contenido_imagen = archivo_imagen.read()
+
+        # Codificar el contenido de la imagen en base64
+        imagen_base64 = base64.b64encode(contenido_imagen).decode()
+
+        #se agrega foto en base64
+        registro_json["foto"] = imagen_base64
+
+        #enviar datos a Backend
+        headers = {'Content-Type': 'application/json'}
+
+        # Realizar la solicitud GET
+        response = None
+        try:
+            if verbose:
+                print("Trying to send POST request with:")
+                print(registro_json)
+            response =  requests.post(BACKEND_URL, data=json.dumps(registro_json), headers=headers)
+        except requests.exceptions.RequestException as e:
+            print("Error al hacer la solicitud del archivo" + registro_json["path_foto"])
+
+        # Comprobar si la solicitud fue exitosa
+        if response != None and response.status_code == 200:
+            print("procesado Ok")
+            
+        else:
+            del registro_json["foto"] #se quita el base64 para el print
+            print("ERROR: " + registro_json + ". Reencolando registro para reenviar")
+            cola_registros.put(registro_json)
+
+# Crear cola para comunicación entre hilos
+cola_registros = queue.Queue()
+
+enviar_registros_thread = threading.Thread(target=detect_thread_function, args=(cola_registros,))
+consumir_registros_thread = threading.Thread(target=send_thread_function, args=(cola_registros,))
+
 enviar_registros_thread.start()
+consumir_registros_thread.start()
+
+#se espera a que el hilo que genera los registros termine y luego se pone un valor final
+enviar_registros_thread.join()
+cola_registros.put(None)
+
+#se espera a que termine el hilo que consume los datos
+consumir_registros_thread.join()

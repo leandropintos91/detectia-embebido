@@ -40,3 +40,7 @@ fi
 if [ $version == "3.5" ]; then
 pip3 install https://github.com/google-coral/pycoral/releases/download/release-frogfish/tflite_runtime-2.5.0-cp35-cp35m-linux_armv7l.whl
 fi
+
+
+#Otras dependencias:
+pip install python-dotenv
