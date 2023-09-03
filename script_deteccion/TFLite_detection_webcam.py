@@ -29,6 +29,8 @@ import threading
 import pytz
 import base64
 import requests
+import subprocess
+
 from dotenv import load_dotenv
 
 # Define and parse input arguments
@@ -289,13 +291,33 @@ def detect_thread_function(cola_registros):
             id_foto += 1
             path = home_path + "/detecciones/deteccion_" + file_timestamp + ".jpg"
             cv2.imwrite(path, frame)
+
+            #comando GPS a ejecutar por consola
+            comando_gps = 'gpspipe -w -n 5 | grep TPV'
+
+            #ejecucion de comando
+            resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+
+            lat = 0
+            lon = 0
+
+            if resultado_gps.returncode == 0:
+                datos_gps = json.loads(resultado_gps.stdout)
+                lat = datos_gps['lat']
+                lon = datos_gps['lon']
+            else:
+                print("Error captura GPS:")
+                print(resultado_gps.stderr)
+                lat = 99.9999
+                lon = 99.9999
+
             registro = {
                 "detecciones": detecciones,
                 "path_foto": path,
                 "fechaDeteccion": timestamp,
                 "ubicacion": {
-                    "latitud": "-47.2154",
-                    "longitud": "-58.2354"
+                    "latitud": lat,
+                    "longitud": lon
                 }
             }
             registro_json = json.dumps(registro)
