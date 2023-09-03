@@ -35,16 +35,15 @@ from dotenv import load_dotenv
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--modeldir', help='Folder the .tflite file is located in',
-                    required=True)
+parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default="./tf_model")
 parser.add_argument('--graph', help='Name of the .tflite file, if different than detect.tflite',
                     default='detect.tflite')
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
                     default='labelmap.txt')
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.5)
+                    default=0.9)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
-                    default='1280x720')
+                    default='640x480')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
 parser.add_argument('--verbose', action='store_true', help='Print log messages or not')
@@ -235,6 +234,19 @@ def detect_thread_function(cola_registros):
             # Grab frame from video stream
             frame1 = videostream.read()
 
+        #first check that speed is not less than 5
+        comando_gps = 'gpspipe -w -n 5 | grep TPV'
+        resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+        car_is_moving = False
+        if resultado_gps.returncode == 0:
+            datos_gps = json.loads(resultado_gps.stdout)
+            speed = datos_gps["speed"]
+            if speed > 5.0:
+                car_is_moving = True
+
+        if car_is_moving == False:
+            break
+
         # Acquire frame and resize to expected shape [1xHxWx3]
         frame = frame1.copy()
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -292,14 +304,8 @@ def detect_thread_function(cola_registros):
             path = home_path + "/detecciones/deteccion_" + file_timestamp + ".jpg"
             cv2.imwrite(path, frame)
 
-            #comando GPS a ejecutar por consola
-            comando_gps = 'gpspipe -w -n 5 | grep TPV'
-
-            #ejecucion de comando
-            resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
-
-            lat = 0
-            lon = 0
+            lat = 0.0
+            lon = 0.0
 
             if resultado_gps.returncode == 0:
                 datos_gps = json.loads(resultado_gps.stdout)
@@ -308,8 +314,6 @@ def detect_thread_function(cola_registros):
             else:
                 print("Error captura GPS:")
                 print(resultado_gps.stderr)
-                lat = 99.9999
-                lon = 99.9999
 
             registro = {
                 "detecciones": detecciones,
@@ -371,7 +375,9 @@ def send_thread_function(cola_registros):
         try:
             if verbose:
                 print("Trying to send POST request with:")
-                print(registro_json)
+                registro_json_sin_imagen = registro_json.copy()
+                del registro_json_sin_imagen["foto"]
+                print(registro_json_sin_imagen)
             response =  requests.post(BACKEND_URL, data=json.dumps(registro_json), headers=headers)
         except requests.exceptions.RequestException as e:
             print("Error al hacer la solicitud del archivo" + registro_json["path_foto"])
@@ -382,8 +388,8 @@ def send_thread_function(cola_registros):
             
         else:
             del registro_json["foto"] #se quita el base64 para el print
-            print("ERROR: " + registro_json + ". Reencolando registro para reenviar")
-            cola_registros.put(registro_json)
+            print("ERROR: " + registro_json_sin_imagen + ". Reencolando registro para reenviar")
+            cola_registros.put(registro_json_sin_imagen)
 
 # Crear cola para comunicación entre hilos
 cola_registros = queue.Queue()
