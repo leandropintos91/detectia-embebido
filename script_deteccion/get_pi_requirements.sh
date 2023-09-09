@@ -11,9 +11,6 @@ sudo apt-get -y install libatlas-base-dev
 # Paquetes de tools para manejo de GPS
 sudo apt-get install gpsd gpsd-clients gpsd-tools
 
-# Iniciar servicio GPS por las dudas
-sudo gpsd /dev/ttyUSB0 -F /var/run/gpsd.sock
-
 # Need to get an older version of OpenCV because version 4 has errors
 pip3 install opencv-python==3.4.11.41
 
