@@ -35,19 +35,19 @@ from dotenv import load_dotenv
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--modeldir', help='Folder the .tflite file is located in',
-                    required=True)
+parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default="/home/leandro/detectia-embebido/script_deteccion/tf_model")
 parser.add_argument('--graph', help='Name of the .tflite file, if different than detect.tflite',
                     default='detect.tflite')
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
                     default='labelmap.txt')
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.5)
+                    default=0.9)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
-                    default='1280x720')
+                    default='640x480')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
 parser.add_argument('--verbose', action='store_true', help='Print log messages or not')
+parser.add_argument('--bypass_speed', action='store_true', help='Take in count the speed or not')
 parser.add_argument('--video', help='Name of the video file',
                     default='')
 parser.add_argument('--gui', action='store_true', help='Show or not screen with boxes')
@@ -65,6 +65,7 @@ resW, resH = args.resolution.split('x')
 imW, imH = int(resW), int(resH)
 use_TPU = args.edgetpu
 verbose = bool(args.verbose)
+bypass_speed = True
 VIDEO_NAME = args.video
 MODO_VISUAL = args.gui
 FRAME_STEP = int(args.framestep)
@@ -136,6 +137,7 @@ def detect_thread_function(cola_registros):
     global imH
     global imW
     global FRAME_STEP
+    global bypass_speed
 
     # Import TensorFlow libraries
     # If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
@@ -235,6 +237,27 @@ def detect_thread_function(cola_registros):
             # Grab frame from video stream
             frame1 = videostream.read()
 
+        #first check that speed is not less than 5
+        comando_gps = 'gpspipe -w -n 5 | grep TPV'
+        try:
+            resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, timeout=1)
+        except:
+            print("GPS not available, skipping")
+            continue
+        car_is_moving = False
+        if resultado_gps.returncode == 0:
+            datos_gps = json.loads(resultado_gps.stdout)
+            if verbose:
+                print("Datos gps:" + str(datos_gps))
+            speed = datos_gps["speed"]
+            if speed > 5.0:
+                car_is_moving = True
+
+        if car_is_moving == False and bypass_speed == False:
+            if verbose:
+                print("skipping frame. car is stopped")
+            continue
+
         # Acquire frame and resize to expected shape [1xHxWx3]
         frame = frame1.copy()
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -255,9 +278,13 @@ def detect_thread_function(cola_registros):
         scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
         detecciones = []
 
+        
+
         # Loop over all detections and draw detection box if confidence is above minimum threshold
         for i in range(len(scores)):
             if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
+                if verbose:
+                    print("se detecto algo, procesando...")
 
                 # Get bounding box coordinates and draw box
                 # Interpreter can return coordinates that are outside of image dimensions, need to force them to be within image using max() and min()
@@ -265,11 +292,19 @@ def detect_thread_function(cola_registros):
                 xmin = int(max(1,(boxes[i][1] * imW)))
                 ymax = int(min(imH,(boxes[i][2] * imH)))
                 xmax = int(min(imW,(boxes[i][3] * imW)))
+
+                if( (ymin + ((ymax - ymin) / 2)) < 160):
+                    continue
                 
-                cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 4)
+                if MODO_VISUAL:
+                    cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 4)
 
                 # Draw label
                 object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
+                if (object_name != 'bache' and object_name != 'fisura'):
+                    if verbose:
+                        print("se detecto algo que no es ni bache ni fisura. skipping")
+                    continue
                 label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
                 labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
                 label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
@@ -289,17 +324,11 @@ def detect_thread_function(cola_registros):
             timestamp = obtener_timestamp_iso8601()
             file_timestamp = timestamp.replace(".", ",").replace(":", "_") + "_" + str(id_foto)
             id_foto += 1
-            path = home_path + "/detecciones/deteccion_" + file_timestamp + ".jpg"
+            path = home_path + "/detecciones/pictures/deteccion_" + file_timestamp + ".jpg"
             cv2.imwrite(path, frame)
 
-            #comando GPS a ejecutar por consola
-            comando_gps = 'gpspipe -w -n 5 | grep TPV'
-
-            #ejecucion de comando
-            resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
-
-            lat = 0
-            lon = 0
+            lat = 0.0
+            lon = 0.0
 
             if resultado_gps.returncode == 0:
                 datos_gps = json.loads(resultado_gps.stdout)
@@ -308,8 +337,6 @@ def detect_thread_function(cola_registros):
             else:
                 print("Error captura GPS:")
                 print(resultado_gps.stderr)
-                lat = 99.9999
-                lon = 99.9999
 
             registro = {
                 "detecciones": detecciones,
@@ -339,22 +366,49 @@ def detect_thread_function(cola_registros):
     videostream.stop()
 
 
-def send_thread_function(cola_registros):
-    global BACKEND_URL
+def save_thread_function(cola_registros):
     global verbose
     
-    print("empece a leer la cola")
     while True:
         registro = cola_registros.get()
         if registro is None:
             continue
         
+        if verbose:
+            print("guardando registro")
         registro_json = json.loads(registro)
+
+        fecha_deteccion = registro_json["fechaDeteccion"] #path imagen en embebido
+
+        filename = f"{home_path}/detecciones/json/detection_{fecha_deteccion}.json"
+        with open(filename, "w") as file:
+            json.dump(registro, file)
+
+def send_thread_function():
+    global BACKEND_URL
+    global verbose
+
+    files = os.listdir(home_path + "/detecciones/json")
+    
+    for filename in files:
+        file_path = os.path.join(home_path + "/detecciones/json", filename)
+
+        try:
+            with open(file_path, "r") as file:
+                registro_json_as_string = json.load(file)
+                registro_json = json.loads(registro_json_as_string)
+            print(registro_json)
+            registro_json = registro_json
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON data: {e}")
+            break
 
         path_foto = registro_json["path_foto"] #path imagen en embebido
 
         # Leer el contenido de la imagen
+        print(path_foto)
         with open(path_foto, "rb") as archivo_imagen:
+            print(archivo_imagen)
             contenido_imagen = archivo_imagen.read()
 
         # Codificar el contenido de la imagen en base64
@@ -371,32 +425,59 @@ def send_thread_function(cola_registros):
         try:
             if verbose:
                 print("Trying to send POST request with:")
-                print(registro_json)
+                #registro_json_sin_imagen = registro_json.copy()
+                #del registro_json_sin_imagen["foto"]
+                #print(registro_json_sin_imagen)
+
             response =  requests.post(BACKEND_URL, data=json.dumps(registro_json), headers=headers)
         except requests.exceptions.RequestException as e:
-            print("Error al hacer la solicitud del archivo" + registro_json["path_foto"])
+            print("Error al hacer el POST:" + str(e))
 
         # Comprobar si la solicitud fue exitosa
         if response != None and response.status_code == 200:
             print("procesado Ok")
+            # After successful upload, you can delete the file
+            os.remove(file_path)
+            os.remove(registro_json["path_foto"])
             
         else:
-            del registro_json["foto"] #se quita el base64 para el print
-            print("ERROR: " + registro_json + ". Reencolando registro para reenviar")
-            cola_registros.put(registro_json)
+            print("ERROR code: " + str(response.status_code))
+            print("ERROR details: " + str(response.text))
+            del registro_json["foto"]
+            print(". Reencolando registro para reenviar")
+            if response != None:
+                print(str(response.text))
 
-# Crear cola para comunicación entre hilos
-cola_registros = queue.Queue()
 
-enviar_registros_thread = threading.Thread(target=detect_thread_function, args=(cola_registros,))
-consumir_registros_thread = threading.Thread(target=send_thread_function, args=(cola_registros,))
 
-enviar_registros_thread.start()
-consumir_registros_thread.start()
+def has_usb_camera():
+    # Attempt to open a video capture object
+    cap = cv2.VideoCapture(0)
 
-#se espera a que el hilo que genera los registros termine y luego se pone un valor final
-enviar_registros_thread.join()
-cola_registros.put(None)
+    # Check if the camera was opened successfully
+    if cap.isOpened():
+        cap.release()  # Release the camera capture object
+        return True
+    else:
+        return False
 
-#se espera a que termine el hilo que consume los datos
-consumir_registros_thread.join()
+
+
+if has_usb_camera():
+    if(verbose):
+        print("entrando en modo captura")
+    # Crear cola para comunicación entre hilos
+    cola_registros = queue.Queue()
+
+    detectar_registros_thread = threading.Thread(target=detect_thread_function, args=(cola_registros,))
+    guardar_registros_thread = threading.Thread(target=save_thread_function, args=(cola_registros,))
+    detectar_registros_thread.start()
+    guardar_registros_thread.start()
+    #se espera a que el hilo que genera los registros termine y luego se pone un valor final
+    detectar_registros_thread.join()
+    cola_registros.put(None)
+else:
+    if(verbose):
+        print("entrando en modo envío")
+    send_thread_function()
+
