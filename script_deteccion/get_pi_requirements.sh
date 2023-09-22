@@ -13,6 +13,7 @@ sudo apt-get install gpsd gpsd-clients gpsd-tools
 
 # Need to get an older version of OpenCV because version 4 has errors
 pip3 install opencv-python==3.4.11.41
+pip3 install uuid
 
 # Get packages required for TensorFlow
 # Using the tflite_runtime packages available at https://www.tensorflow.org/lite/guide/python

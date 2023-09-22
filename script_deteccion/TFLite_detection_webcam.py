@@ -30,6 +30,7 @@ import pytz
 import base64
 import requests
 import subprocess
+import uuid
 
 from dotenv import load_dotenv
 
@@ -138,6 +139,8 @@ def detect_thread_function(cola_registros):
     global imW
     global FRAME_STEP
     global bypass_speed
+
+    current_uuid = uuid.uuid4()
 
     # Import TensorFlow libraries
     # If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
@@ -345,7 +348,8 @@ def detect_thread_function(cola_registros):
                 "ubicacion": {
                     "latitud": lat,
                     "longitud": lon
-                }
+                },
+                "loteId": str(current_uuid)
             }
             registro_json = json.dumps(registro)
 
@@ -423,12 +427,6 @@ def send_thread_function():
         # Realizar la solicitud GET
         response = None
         try:
-            if verbose:
-                print("Trying to send POST request with:")
-                #registro_json_sin_imagen = registro_json.copy()
-                #del registro_json_sin_imagen["foto"]
-                #print(registro_json_sin_imagen)
-
             response =  requests.post(BACKEND_URL, data=json.dumps(registro_json), headers=headers)
         except requests.exceptions.RequestException as e:
             print("Error al hacer el POST:" + str(e))
