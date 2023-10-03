@@ -42,7 +42,7 @@ parser.add_argument('--graph', help='Name of the .tflite file, if different than
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
                     default='labelmap.txt')
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.9)
+                    default=0.7)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
                     default='640x480')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
@@ -76,6 +76,10 @@ BACKEND_URL = os.getenv('BACKEND_URL')
 
 
 home_path = os.path.expanduser("~")
+
+last_gps_data = { "latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
+
+lock = threading.Lock()
 
 def checkSaveThreshold(arr, X):
     for num in arr:
@@ -139,6 +143,7 @@ def detect_thread_function(cola_registros):
     global imW
     global FRAME_STEP
     global bypass_speed
+    global last_gps_data
 
     current_uuid = uuid.uuid4()
 
@@ -240,32 +245,18 @@ def detect_thread_function(cola_registros):
             # Grab frame from video stream
             frame1 = videostream.read()
 
-        #first check that speed is not less than 5
-        comando_gps = 'gpspipe -w -n 5 | grep TPV'
-        try:
-            resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, timeout=1)
-        except:
-            print("GPS not available, skipping")
-            continue
-        car_is_moving = False
-        if resultado_gps.returncode == 0:
-            datos_gps = json.loads(resultado_gps.stdout)
-            if verbose:
-                print("Datos gps:" + str(datos_gps))
-            speed = datos_gps["speed"]
-            if speed > 5.0:
-                car_is_moving = True
-
-        if car_is_moving == False and bypass_speed == False:
-            if verbose:
-                print("skipping frame. car is stopped")
-            continue
-
         # Acquire frame and resize to expected shape [1xHxWx3]
         frame = frame1.copy()
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_resized = cv2.resize(frame_rgb, (width, height))
         input_data = np.expand_dims(frame_resized, axis=0)
+
+        last_known_speed=0.0
+        with lock:
+            last_known_speed = last_gps_data["speed"]
+        if bypass_speed != True and last_known_speed <= 1:
+            print("DET  - vehiculo detenido, skipping")
+            continue 
 
         # Normalize pixel values if using a floating model (i.e. if model is non-quantized)
         if floating_model:
@@ -281,13 +272,11 @@ def detect_thread_function(cola_registros):
         scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
         detecciones = []
 
-        
 
         # Loop over all detections and draw detection box if confidence is above minimum threshold
         for i in range(len(scores)):
             if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
-                if verbose:
-                    print("se detecto algo, procesando...")
+                print("DET  - se detecto algo, procesando...")
 
                 # Get bounding box coordinates and draw box
                 # Interpreter can return coordinates that are outside of image dimensions, need to force them to be within image using max() and min()
@@ -296,7 +285,8 @@ def detect_thread_function(cola_registros):
                 ymax = int(min(imH,(boxes[i][2] * imH)))
                 xmax = int(min(imW,(boxes[i][3] * imW)))
 
-                if( (ymin + ((ymax - ymin) / 2)) < 160):
+                if(ymin < 160):
+                    print("DET  - Out of bounds. Skipping")
                     continue
                 
                 if MODO_VISUAL:
@@ -305,14 +295,15 @@ def detect_thread_function(cola_registros):
                 # Draw label
                 object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
                 if (object_name != 'bache' and object_name != 'fisura'):
-                    if verbose:
-                        print("se detecto algo que no es ni bache ni fisura. skipping")
+                    print("DET  - ni bache ni fisura. skipping")
                     continue
+                    
                 label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
                 labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
                 label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
-                cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
-                cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
+                if (MODO_VISUAL):
+                    cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
+                    cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
 
                 deteccion = {
                     "puntaje": int(scores[i]*100),
@@ -322,6 +313,7 @@ def detect_thread_function(cola_registros):
                     }
                 }
                 detecciones.append(deteccion)
+                print("DET  - deteccion exitosa. " + str(label))
         
         if (len(detecciones) > 0):
             timestamp = obtener_timestamp_iso8601()
@@ -330,16 +322,9 @@ def detect_thread_function(cola_registros):
             path = home_path + "/detecciones/pictures/deteccion_" + file_timestamp + ".jpg"
             cv2.imwrite(path, frame)
 
-            lat = 0.0
-            lon = 0.0
-
-            if resultado_gps.returncode == 0:
-                datos_gps = json.loads(resultado_gps.stdout)
-                lat = datos_gps['lat']
-                lon = datos_gps['lon']
-            else:
-                print("Error captura GPS:")
-                print(resultado_gps.stderr)
+            with lock:
+                lat = last_gps_data['latitude']
+                lon = last_gps_data['longitude']
 
             registro = {
                 "detecciones": detecciones,
@@ -353,9 +338,7 @@ def detect_thread_function(cola_registros):
             }
             registro_json = json.dumps(registro)
 
-            if (verbose == True):
-                print("Appending registry to queue:")
-                print(registro_json)
+            print("Appending registry to queue")
             cola_registros.put(registro_json)
 
         if (MODO_VISUAL == True):
@@ -378,8 +361,7 @@ def save_thread_function(cola_registros):
         if registro is None:
             continue
         
-        if verbose:
-            print("guardando registro")
+        print("guardando registro")
         registro_json = json.loads(registro)
 
         fecha_deteccion = registro_json["fechaDeteccion"] #path imagen en embebido
@@ -446,6 +428,32 @@ def send_thread_function():
             if response != None:
                 print(str(response.text))
 
+def gps_thread_function():
+    global last_gps_data
+
+    while True:
+        #first check that speed is not less than 5
+        comando_gps = 'gpspipe -w -n 5 | grep TPV'
+        gps_available = False
+        try:
+            resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, timeout=1)
+            gps_available = True
+        except:
+            print("GPS  - GPS not available")
+
+        if gps_available == True and resultado_gps.returncode == 0:
+            datos_gps = json.loads(resultado_gps.stdout)
+            if datos_gps["mode"] == 2 or datos_gps["mode"] == 3:
+                lat = datos_gps["lat"]
+                lon = datos_gps["lon"]
+                speed = datos_gps['speed']
+                last_gps_data = {"latitude": lat, "longitude": lon, "speed": speed }
+            else:
+                last_gps_data = {"latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
+        else:
+            last_gps_data = { "latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
+
+        print("GPS  - Ultimo dato conocido: " + str(last_gps_data))
 
 
 def has_usb_camera():
@@ -469,8 +477,10 @@ if has_usb_camera():
 
     detectar_registros_thread = threading.Thread(target=detect_thread_function, args=(cola_registros,))
     guardar_registros_thread = threading.Thread(target=save_thread_function, args=(cola_registros,))
+    gps_thread = threading.Thread(target=gps_thread_function)
     detectar_registros_thread.start()
     guardar_registros_thread.start()
+    gps_thread.start()
     #se espera a que el hilo que genera los registros termine y luego se pone un valor final
     detectar_registros_thread.join()
     cola_registros.put(None)
