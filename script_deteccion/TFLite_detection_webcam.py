@@ -446,12 +446,11 @@ def gps_thread_function():
             if datos_gps["mode"] == 2 or datos_gps["mode"] == 3:
                 lat = datos_gps["lat"]
                 lon = datos_gps["lon"]
-                speed = datos_gps['speed']
+                try:
+                    speed = datos_gps['speed']
+                except:
+                    speed = 0.0
                 last_gps_data = {"latitude": lat, "longitude": lon, "speed": speed }
-            else:
-                last_gps_data = {"latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
-        else:
-            last_gps_data = { "latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
 
         print("GPS  - Ultimo dato conocido: " + str(last_gps_data))
 
