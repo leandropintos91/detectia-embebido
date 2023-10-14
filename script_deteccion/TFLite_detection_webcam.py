@@ -327,6 +327,7 @@ def detect_thread_function(cola_registros):
                 lon = last_gps_data['longitude']
 
             registro = {
+                "file_timestamp": file_timestamp,
                 "detecciones": detecciones,
                 "path_foto": path,
                 "fechaDeteccion": timestamp,
@@ -364,11 +365,12 @@ def save_thread_function(cola_registros):
         print("guardando registro")
         registro_json = json.loads(registro)
 
-        fecha_deteccion = registro_json["fechaDeteccion"] #path imagen en embebido
+        file_timestamp = registro_json["file_timestamp"] #path imagen en embebido
 
-        filename = f"{home_path}/detecciones/json/detection_{fecha_deteccion}.json"
+        filename = f"{home_path}/detecciones/json/detection_{file_timestamp}.json"
+        del registro_json["file_timestamp"]
         with open(filename, "w") as file:
-            json.dump(registro, file)
+            json.dump(registro_json, file)
 
 def send_thread_function():
     global BACKEND_URL
@@ -381,10 +383,9 @@ def send_thread_function():
 
         try:
             with open(file_path, "r") as file:
-                registro_json_as_string = json.load(file)
-                registro_json = json.loads(registro_json_as_string)
+                #registro_json_as_string = json.load(file)
+                registro_json = json.load(file)
             print(registro_json)
-            registro_json = registro_json
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON data: {e}")
             break
