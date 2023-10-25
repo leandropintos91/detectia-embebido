@@ -36,7 +36,8 @@ from dotenv import load_dotenv
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default="/home/leandro/detectia-embebido/script_deteccion/tf_model")
+home_path = os.path.expanduser("~")
+parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default=home_path + "detectia-embebido/script_deteccion/tf_model")
 parser.add_argument('--graph', help='Name of the .tflite file, if different than detect.tflite',
                     default='detect.tflite')
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
@@ -71,11 +72,15 @@ VIDEO_NAME = args.video
 MODO_VISUAL = args.gui
 FRAME_STEP = int(args.framestep)
 
+print("MODELDIR: ")
+print(MODEL_NAME)
+
 load_dotenv()
-BACKEND_URL = os.getenv('BACKEND_URL')
+BACKEND_CAPTURA_URL = os.getenv('BACKEND_CAPTURA_URL')
+BACKEND_PROCESAR_URL = os.getenv('BACKEND_PROCESAR_URL')
 
 
-home_path = os.path.expanduser("~")
+
 
 last_gps_data = { "latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
 
@@ -373,13 +378,14 @@ def save_thread_function(cola_registros):
             json.dump(registro_json, file)
 
 def send_thread_function():
-    global BACKEND_URL
+    global BACKEND_CAPTURA_URL
     global verbose
 
     files = os.listdir(home_path + "/detecciones/json")
     
     for filename in files:
         file_path = os.path.join(home_path + "/detecciones/json", filename)
+        print("SEN - Procesando archivo" + filename)
 
         try:
             with open(file_path, "r") as file:
@@ -387,7 +393,7 @@ def send_thread_function():
                 registro_json = json.load(file)
             print(registro_json)
         except json.JSONDecodeError as e:
-            print(f"Error decoding JSON data: {e}")
+            print(f"SEN - Error decoding JSON data: {e}")
             break
 
         path_foto = registro_json["path_foto"] #path imagen en embebido
@@ -410,24 +416,29 @@ def send_thread_function():
         # Realizar la solicitud GET
         response = None
         try:
-            response =  requests.post(BACKEND_URL, data=json.dumps(registro_json), headers=headers)
+            response =  requests.post(BACKEND_CAPTURA_URL, data=json.dumps(registro_json), headers=headers)
         except requests.exceptions.RequestException as e:
-            print("Error al hacer el POST:" + str(e))
+            print("SEN  - Error al hacer el POST:" + str(e))
 
         # Comprobar si la solicitud fue exitosa
         if response != None and response.status_code == 200:
-            print("procesado Ok")
+            print("SEN  - procesado Ok")
             # After successful upload, you can delete the file
             os.remove(file_path)
             os.remove(registro_json["path_foto"])
             
         else:
-            print("ERROR code: " + str(response.status_code))
-            print("ERROR details: " + str(response.text))
+            print("SEN  - ERROR code: " + str(response.status_code))
+            print("SEN  - ERROR details: " + str(response.text))
             del registro_json["foto"]
             print(". Reencolando registro para reenviar")
             if response != None:
                 print(str(response.text))
+
+    #try:
+        #response =  requests.post(BACKEND_PROCESAR_URL)
+    #except requests.exceptions.RequestException as e:
+        #print("SEN  - Error al hacer el POST:" + str(e))
 
 def gps_thread_function():
     global last_gps_data
