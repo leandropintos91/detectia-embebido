@@ -50,3 +50,5 @@ pip3 install python-dotenv
 pip3 install uuid
 pip3 install pytz
 pip3 install requests
+pip3 install ST7735
+pip3 install RPi

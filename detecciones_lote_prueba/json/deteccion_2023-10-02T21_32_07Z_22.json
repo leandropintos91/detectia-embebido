@@ -1,0 +1,1 @@
+{"detecciones": [{"puntaje": 99, "clase": "bache", "recuadro": {"top": 179, "right": 344, "bottom": 290, "left": 140}}], "path_foto": "/home/leandro/detecciones/pictures/deteccion_2023-10-02T21_32_07Z_22.jpg", "fechaDeteccion": "2023-10-02T21:32:07Z", "ubicacion": {"latitud": -34.668328333, "longitud": -58.559896667}, "loteId": "lote-test"}

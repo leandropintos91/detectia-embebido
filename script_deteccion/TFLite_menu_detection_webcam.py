@@ -39,6 +39,8 @@ import RPi.GPIO as GPIO
 
 from dotenv import load_dotenv
 
+home_path = os.path.expanduser("~")
+
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default=home_path + "detectia-embebido/script_deteccion/tf_model")
@@ -145,7 +147,7 @@ def obtener_timestamp_iso8601():
  
 
 def detect_thread_function(cola_registros):
-   global GRAPH_NAME
+    global GRAPH_NAME
     global width
     global height
     global imH
@@ -433,14 +435,17 @@ def send_thread_function():
         if response != None and response.status_code == 200:
             print("SEN  - procesado Ok")
             # After successful upload, you can delete the file
-            os.remove(file_path)
-            os.remove(registro_json["path_foto"])
+            source_json_file_path = file_path
+            destination_json_file_path = os.path.join(home_path + "/detecciones/enviados/json" + filename)
+            os.rename(source_json_file_path, destination_json_file_path)
+
+            source_pictures_file_path = registro_json["path_foto"]
+            destination_pictures_file_path = registro_json["path_foto"].replace("/detecciones/" , "/detecciones/enviados/")
+            os.rename(source_pictures_file_path, destination_pictures_file_path)
         else:
             hay_errores = 1
             print("SEN  - ERROR code: " + str(response.status_code))
             print("SEN  - ERROR details: " + str(response.text))
-            del registro_json["foto"]
-            print(". Reencolando registro para reenviar")
             if response != None:
                 print(str(response.text))
 
@@ -500,7 +505,7 @@ def gps_thread_function():
         print("GPS  - Ultimo dato conocido: " + str(last_gps_data))
 
 
-def has_usb_camera():
+def has_usb_camera(): 
     # Attempt to open a video capture object
     cap = cv2.VideoCapture(0)
 
