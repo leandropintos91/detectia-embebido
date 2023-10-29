@@ -43,7 +43,7 @@ home_path = os.path.expanduser("~")
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default=home_path + "detectia-embebido/script_deteccion/tf_model")
+parser.add_argument('--modeldir', help='Folder the .tflite file is located in', default=home_path + "/detectia-embebido/script_deteccion/tf_model")
 parser.add_argument('--graph', help='Name of the .tflite file, if different than detect.tflite',
                     default='detect.tflite')
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
@@ -492,7 +492,12 @@ def gps_thread_function():
             print("GPS  - GPS not available")
 
         if gps_available == True and resultado_gps.returncode == 0:
-            datos_gps = json.loads(resultado_gps.stdout)
+            print(resultado_gps)
+            try:
+                datos_gps = json.loads(resultado_gps.stdout)
+            except:
+                continue
+
             if datos_gps["mode"] == 2 or datos_gps["mode"] == 3:
                 lat = datos_gps["lat"]
                 lon = datos_gps["lon"]
