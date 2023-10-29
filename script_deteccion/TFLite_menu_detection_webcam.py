@@ -436,7 +436,7 @@ def send_thread_function():
             print("SEN  - procesado Ok")
             # After successful upload, you can delete the file
             source_json_file_path = file_path
-            destination_json_file_path = os.path.join(home_path + "/detecciones/enviados/json" + filename)
+            destination_json_file_path = os.path.join(home_path + "/detecciones/enviados/json/" + filename)
             os.rename(source_json_file_path, destination_json_file_path)
 
             source_pictures_file_path = registro_json["path_foto"]
