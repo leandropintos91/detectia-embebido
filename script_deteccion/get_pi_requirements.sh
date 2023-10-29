@@ -52,5 +52,5 @@ pip3 install uuid==1.30
 pip3 install pytz==2023.3
 pip3 install requests==2.31.0
 pip3 install ST7735==0.0.5
-pip3 install RPi.GPIO==0.7.0
+pip3 install RPi.GPIO==0.7.1
 pip3 install Pillow==10.1.0
