@@ -12,6 +12,7 @@ sudo apt-get -y install libatlas-base-dev
 sudo apt-get install gpsd gpsd-clients gpsd-tools
 
 # Need to get an older version of OpenCV because version 4 has errors
+pip3 install numpy==1.24.4
 pip3 install opencv-python==3.4.11.41
 
 # Get packages required for TensorFlow
@@ -46,7 +47,10 @@ fi
 
 
 #Otras dependencias:
-pip3 install python-dotenv
-pip3 install uuid
-pip3 install pytz
-pip3 install requests
+pip3 install python-dotenv==1.0.0
+pip3 install uuid==1.30
+pip3 install pytz==2023.3
+pip3 install requests==2.31.0
+pip3 install ST7735==0.0.5
+pip3 install RPi.GPIO==0.7.1
+pip3 install Pillow==10.1.0
