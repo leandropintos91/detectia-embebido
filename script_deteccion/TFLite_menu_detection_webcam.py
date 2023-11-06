@@ -89,6 +89,7 @@ BACKEND_PROCESAR_URL = os.getenv('BACKEND_PROCESAR_URL')
 home_path = os.path.expanduser("~")
 
 last_gps_data = { "latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
+gps_activo = False
 
 lock = threading.Lock()
 
@@ -155,6 +156,7 @@ def detect_thread_function(cola_registros):
     global FRAME_STEP
     global bypass_speed
     global last_gps_data
+    global gps_activo
 
     current_uuid = uuid.uuid4()
 
@@ -361,7 +363,8 @@ def detect_thread_function(cola_registros):
             break
 
     #termina hilo GPS
-    gps_activo = False
+    with lock:
+        gps_activo = False
     
     # Clean up
     cv2.destroyAllWindows()
@@ -479,7 +482,8 @@ def gps_thread_function():
     global last_gps_data
     global gps_activo
     
-    gps_activo = True
+    with lock:
+        gps_activo = True
     
     while gps_activo:
         #first check that speed is not less than 5
@@ -505,9 +509,9 @@ def gps_thread_function():
                     speed = datos_gps['speed']
                 except:
                     speed = 0.0
-                last_gps_data = {"latitude": lat, "longitude": lon, "speed": speed }
-
-        print("GPS  - Ultimo dato conocido: " + str(last_gps_data))
+                with lock:
+                    last_gps_data = {"latitude": lat, "longitude": lon, "speed": speed}
+        print("GPS - Ultimo dato conocido: " + str(last_gps_data))
 
 
 def has_usb_camera(): 
