@@ -404,7 +404,6 @@ def gps_thread_function():
             print("GPS  - GPS not available")
 
         if gps_available == True and resultado_gps.returncode == 0:
-            print(resultado_gps)
             try:
                 datos_gps = json.loads(resultado_gps.stdout)
             except:
