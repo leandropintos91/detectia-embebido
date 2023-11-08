@@ -301,7 +301,7 @@ def detect_thread_function(cola_registros):
                 ymax = int(min(imH,(boxes[i][2] * imH)))
                 xmax = int(min(imW,(boxes[i][3] * imW)))
 
-                if(ymin < 80):
+                if(ymin < 1):
                     logging.info("DET  - Out of bounds. Skipping")
                     continue
                 
