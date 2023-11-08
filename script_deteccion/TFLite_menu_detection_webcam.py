@@ -79,6 +79,8 @@ VIDEO_NAME = args.video
 MODO_VISUAL = args.gui
 FRAME_STEP = int(args.framestep)
 
+logging.basicConfig(filename= home_path + "/detectia.log", level=logging.INFO)
+
 logging.info("MODELDIR: ")
 logging.info(MODEL_NAME)
 
@@ -87,14 +89,12 @@ BACKEND_CAPTURA_URL = os.getenv('BACKEND_CAPTURA_URL')
 BACKEND_PROCESAR_URL = os.getenv('BACKEND_PROCESAR_URL')
 
 
-home_path = os.path.expanduser("~")
-
 last_gps_data = { "latitude": 0.0, "longitude": 0.0, "speed": 0.0 }
 gps_activo = False
 
 lock = threading.Lock()
 
-logging.basicConfig(filename= home_path + "/detectia.log", level=logging.INFO)
+
 
 def checkSaveThreshold(arr, X):
     for num in arr:
@@ -206,7 +206,7 @@ def detect_thread_function(cola_registros):
     if use_TPU:
         interpreter = Interpreter(model_path=PATH_TO_CKPT,
                                 experimental_delegates=[load_delegate('libedgetpu.so.1.0')])
-        logging.info(PATH_TO_CKPT)
+        print(PATH_TO_CKPT)
     else:
         interpreter = Interpreter(model_path=PATH_TO_CKPT)
 
@@ -250,7 +250,7 @@ def detect_thread_function(cola_registros):
         if (VIDEO_NAME != "" and video.isOpened()):
             ret, frame1 = video.read()
             if not ret:
-                logging.info('Reached the end of the video!')
+                print('Reached the end of the video!')
                 break
 
             frameModule = frameNumber%FRAME_STEP
@@ -271,7 +271,7 @@ def detect_thread_function(cola_registros):
         with lock:
             last_known_speed = last_gps_data["speed"]
         if bypass_speed != True and last_known_speed <= 1:
-            logging.info("DET  - vehiculo detenido, skipping")
+            print("DET  - vehiculo detenido, skipping")
             continue 
 
         # Normalize pixel values if using a floating model (i.e. if model is non-quantized)
@@ -292,7 +292,7 @@ def detect_thread_function(cola_registros):
         # Loop over all detections and draw detection box if confidence is above minimum threshold
         for i in range(len(scores)):
             if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
-                logging.info("DET  - se detecto algo, procesando...")
+                print("DET  - se detecto algo, procesando...")
 
                 # Get bounding box coordinates and draw box
                 # Interpreter can return coordinates that are outside of image dimensions, need to force them to be within image using max() and min()
@@ -302,7 +302,7 @@ def detect_thread_function(cola_registros):
                 xmax = int(min(imW,(boxes[i][3] * imW)))
 
                 if(ymin < 80):
-                    logging.info("DET  - Out of bounds. Skipping")
+                    print("DET  - Out of bounds. Skipping")
                     continue
                 
                 if MODO_VISUAL:
@@ -311,7 +311,7 @@ def detect_thread_function(cola_registros):
                 # Draw label
                 object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
                 if (object_name != 'bache' and object_name != 'fisura'):
-                    logging.info("DET  - ni bache ni fisura. skipping")
+                    print("DET  - ni bache ni fisura. skipping")
                     continue
                     
                 label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
@@ -329,7 +329,7 @@ def detect_thread_function(cola_registros):
                     }
                 }
                 detecciones.append(deteccion)
-                logging.info("DET  - deteccion exitosa. " + str(label))
+                print("DET  - deteccion exitosa. " + str(label))
         
         if (len(detecciones) > 0):
             timestamp = obtener_timestamp_iso8601()
@@ -355,7 +355,7 @@ def detect_thread_function(cola_registros):
             }
             registro_json = json.dumps(registro)
 
-            logging.info("Appending registry to queue")
+            print("Appending registry to queue")
             cola_registros.put(registro_json)
 
         if (MODO_VISUAL == True):
@@ -382,7 +382,7 @@ def save_thread_function(cola_registros):
         if registro is None:
             continue
         
-        logging.info("guardando registro")
+        print("guardando registro")
         registro_json = json.loads(registro)
 
         file_timestamp = registro_json["file_timestamp"] #path imagen en embebido
@@ -401,24 +401,24 @@ def send_thread_function():
     
     for filename in files:
         file_path = os.path.join(home_path + "/detecciones/json", filename)
-        logging.info("SEN - Procesando archivo" + filename)
+        print("SEN - Procesando archivo" + filename)
 
         try:
             with open(file_path, "r") as file:
                 #registro_json_as_string = json.load(file)
                 registro_json = json.load(file)
-            logging.info(registro_json)
+            print(registro_json)
         except json.JSONDecodeError as e:
             hay_errores = 1
-            logging.info(f"SEN - Error decoding JSON data: {e}")
+            print(f"SEN - Error decoding JSON data: {e}")
             break
 
         path_foto = registro_json["path_foto"] #path imagen en embebido
 
         # Leer el contenido de la imagen
-        logging.info(path_foto)
+        print(path_foto)
         with open(path_foto, "rb") as archivo_imagen:
-            logging.info(archivo_imagen)
+            print(archivo_imagen)
             contenido_imagen = archivo_imagen.read()
 
         # Codificar el contenido de la imagen en base64
@@ -435,11 +435,11 @@ def send_thread_function():
         try:
             response =  requests.post(BACKEND_CAPTURA_URL, data=json.dumps(registro_json), headers=headers)
         except Exception as e:
-            logging.info("SEN  - Error al hacer el POST:" + str(e))
+            print("SEN  - Error al hacer el POST:" + str(e))
 
         # Comprobar si la solicitud fue exitosa
         if response != None and response.status_code == 200:
-            logging.info("SEN  - procesado Ok")
+            print("SEN  - procesado Ok")
             # After successful upload, you can delete the file
             source_json_file_path = file_path
             destination_json_file_path = os.path.join(home_path + "/detecciones/enviados/json/" + filename)
@@ -450,15 +450,15 @@ def send_thread_function():
             os.rename(source_pictures_file_path, destination_pictures_file_path)
         else:
             hay_errores = 1
-            logging.info("SEN  - ERROR code: " + str(response.status_code))
-            logging.info("SEN  - ERROR details: " + str(response.text))
+            print("SEN  - ERROR code: " + str(response.status_code))
+            print("SEN  - ERROR details: " + str(response.text))
             if response != None:
-                logging.info(str(response.text))
+                print(str(response.text))
 
     try:
         response =  requests.post(BACKEND_PROCESAR_URL)
     except Exception as e:
-        logging.info("SEN  - Error al hacer el POST:" + str(e))
+        print("SEN  - Error al hacer el POST:" + str(e))
 
     if hay_errores == 0: #el script de envio termino bien
         img = Image.new('RGB', (WIDTH, HEIGHT), color=(230, 15, 5))
@@ -496,7 +496,7 @@ def gps_thread_function():
             resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, timeout=1)
             gps_available = True
         except:
-            logging.info("GPS  - GPS not available")
+            print("GPS  - GPS not available")
 
         if gps_available == True and resultado_gps.returncode == 0:
             try:
@@ -513,7 +513,7 @@ def gps_thread_function():
                     speed = 0.0
                 with lock:
                     last_gps_data = {"latitude": lat, "longitude": lon, "speed": speed}
-        logging.info("GPS - Ultimo dato conocido: " + str(last_gps_data))
+        print("GPS - Ultimo dato conocido: " + str(last_gps_data))
 
 
 def has_usb_camera(): 
@@ -557,7 +557,7 @@ def gps_test():
             resultado_gps = subprocess.run(comando_gps, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, timeout=1)
             gps_available = True
         except:
-            logging.info("GPS  no disponible desde prueba")
+            print("GPS  no disponible desde prueba")
             cont_gps_error = cont_gps_error + 1
 
         if gps_available == True and resultado_gps.returncode == 0:
@@ -634,7 +634,7 @@ def ejecutar(opcion):
             if gps_test():
                 
                 if(verbose):
-                    logging.info("entrando en modo captura")
+                    print("entrando en modo captura")
         
                 #Pantalla capturando
                 img = Image.new('RGB', (WIDTH, HEIGHT), color=(25, 170, 70))
@@ -694,7 +694,7 @@ def ejecutar(opcion):
             time.sleep(1)
             
             if(verbose):
-                logging.info("entrando en modo envío")
+                print("entrando en modo envío")
     
             send_thread_function()
     
