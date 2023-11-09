@@ -88,7 +88,7 @@ def send_thread_function():
             print(registro_json)
         except json.JSONDecodeError as e:
             print(f"SEN - Error decoding JSON data: {e}")
-            break
+            continue
 
         path_foto = registro_json["path_foto"] #path imagen en embebido
 
@@ -126,15 +126,10 @@ def send_thread_function():
             destination_pictures_file_path = registro_json["path_foto"].replace("/detecciones/" , "/detecciones/enviados/")
             os.rename(source_pictures_file_path, destination_pictures_file_path)
         else:
-            print("SEN  - ERROR code: " + str(response.status_code))
-            print("SEN  - ERROR details: " + str(response.text))
-            if response != None:
-                print(str(response.text))
-
-    try:
-        response =  requests.post(BACKEND_PROCESAR_URL)
-    except Exception as e:
-        print("SEN  - Error al hacer el POST:" + str(e))
+            if(response != None and response.status_code != None):
+                print("SEN  - ERROR code: " + str(response.status_code))
+            if(response != None and response.text != None):
+                print("SEN  - ERROR details: " + str(response.text))
 
 
 send_thread_function()
