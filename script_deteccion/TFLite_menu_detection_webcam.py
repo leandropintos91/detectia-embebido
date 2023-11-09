@@ -411,7 +411,7 @@ def send_thread_function():
         except json.JSONDecodeError as e:
             hay_errores = 1
             logging.info(f"SEN - Error decoding JSON data: {e}")
-            break
+            continue
 
         path_foto = registro_json["path_foto"] #path imagen en embebido
 
@@ -450,10 +450,10 @@ def send_thread_function():
             os.rename(source_pictures_file_path, destination_pictures_file_path)
         else:
             hay_errores = 1
-            logging.info("SEN  - ERROR code: " + str(response.status_code))
-            logging.info("SEN  - ERROR details: " + str(response.text))
-            if response != None:
-                logging.info(str(response.text))
+            if(response != None and response.status_code != None):
+                logging.info("SEN  - ERROR code: " + str(response.status_code))
+            if(response != None and response.text != None):
+                logging.info("SEN  - ERROR details: " + str(response.text))
 
     try:
         response =  requests.post(BACKEND_PROCESAR_URL)
